@@ -12,7 +12,6 @@ A minha prioridade aqui foi simplicidade operacional, previsibilidade e aderênc
 
 A aplicação expõe dois endpoints públicos através do load balancer:
 
-```http
 GET /ready
 POST /fraud-score
 
