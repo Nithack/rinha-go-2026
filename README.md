@@ -2,9 +2,9 @@
 
 Eu sou o **Nithack** e esta é a minha implementação em **Go** para a **Rinha de Backend 2026**.
 
-A proposta deste projeto é resolver o desafio de detecção de fraude mantendo o escopo bem fechado no enunciado: receber uma transação, transformá-la no vetor oficial de 14 dimensões, comparar esse vetor com a base de referências, buscar os 5 vizinhos mais próximos e responder se a transação deve ser aprovada ou não.
+A proposta deste projeto é resolver o desafio de detecção de fraude mantendo o escopo fechado no enunciado: receber uma transação, transformá-la no vetor oficial de 14 dimensões, comparar esse vetor com a base de referências, buscar os 5 vizinhos mais próximos e responder se a transação deve ser aprovada ou não.
 
-A minha prioridade aqui foi simplicidade operacional, previsibilidade e aderência ao desafio. Não adicionei banco de dados, fila, cache externo, heurística extra de fraude ou regra que não esteja relacionada diretamente ao problema proposto.
+A minha prioridade aqui foi simplicidade operacional, previsibilidade e aderência ao desafio. Não adicionei banco de dados, fila, cache externo, heurística extra de fraude ou regra que não esteja diretamente ligada à proposta.
 
 ---
 
@@ -12,90 +12,86 @@ A minha prioridade aqui foi simplicidade operacional, previsibilidade e aderênc
 
 A aplicação expõe dois endpoints públicos através do load balancer:
 
+~~~http
 GET /ready
 POST /fraud-score
+~~~
 
 O endpoint principal é:
 
+~~~http
 POST /fraud-score
+~~~
 
 Ele recebe o payload da transação, calcula o vetor de características e retorna:
 
+~~~json
 {
   "approved": true,
   "fraud_score": 0.2
 }
+~~~
 
 A decisão final segue a regra do desafio:
 
+~~~txt
 fraud_score = quantidade_de_fraudes_entre_os_5_vizinhos / 5
 
 approved = fraud_score < 0.6
+~~~
 
 Ou seja:
 
-Fraudes entre os 5 vizinhos	fraud_score	approved
-
-0	0.0	true
-1	0.2	true
-2	0.4	true
-3	0.6	false
-4	0.8	false
-5	1.0	false
-
-
+| Fraudes entre os 5 vizinhos | fraud_score | approved |
+|---:|---:|:---|
+| 0 | 0.0 | true |
+| 1 | 0.2 | true |
+| 2 | 0.4 | true |
+| 3 | 0.6 | false |
+| 4 | 0.8 | false |
+| 5 | 1.0 | false |
 
 ---
 
-Stack
+## Stack
 
-Usei uma stack bem direta:
+Usei uma stack direta:
 
+~~~txt
 Go
 Nginx
 Docker
 Docker Compose
+~~~
 
-A arquitetura tem:
+A arquitetura geral é:
 
+~~~txt
 Nginx
  ├── api1
  └── api2
        └── vector-engine
+~~~
 
-O Nginx recebe as requisições na porta 9999 e distribui entre duas instâncias da API.
+O `Nginx` recebe as requisições na porta `9999` e distribui entre duas instâncias da API.
 
 As APIs não carregam o dataset completo de referências. Elas apenas:
 
 1. recebem o payload;
-
-
-2. carregam normalization.json;
-
-
-3. carregam mcc_risk.json;
-
-
+2. carregam `normalization.json`;
+3. carregam `mcc_risk.json`;
 4. geram o vetor oficial de 14 dimensões;
-
-
-5. enviam esse vetor para o vector-engine;
-
-
-6. calculam fraud_score;
-
-
+5. enviam esse vetor para o `vector-engine`;
+6. calculam `fraud_score`;
 7. retornam a resposta final.
 
-
-
-O vector-engine é um serviço interno. Ele carrega os vetores de referência pré-processados em memória e executa a busca dos 5 vizinhos mais próximos.
-
+O `vector-engine` é um serviço interno. Ele carrega os vetores de referência pré-processados em memória e executa a busca dos 5 vizinhos mais próximos.
 
 ---
 
-Estrutura do projeto
+## Estrutura do projeto
 
+~~~txt
 .
 ├── Dockerfile
 ├── docker-compose.yml
@@ -118,66 +114,72 @@ Estrutura do projeto
         ├── files.go
         ├── types.go
         └── vectorize.go
-
+~~~
 
 ---
 
-Arquivos oficiais esperados
+## Arquivos oficiais esperados
 
 Antes de buildar o projeto, os arquivos oficiais do desafio precisam estar em:
 
+~~~txt
 resources/references.json.gz
 resources/mcc_risk.json
 resources/normalization.json
+~~~
 
 Esses arquivos são usados assim:
 
-Arquivo	Uso
-
-references.json.gz	Base de vetores de referência usada na busca dos vizinhos mais próximos
-mcc_risk.json	Mapa de risco por MCC
-normalization.json	Valores máximos usados para normalizar os campos numéricos
-
-
+| Arquivo | Uso |
+|---|---|
+| `references.json.gz` | Base de vetores de referência usada na busca dos vizinhos mais próximos |
+| `mcc_risk.json` | Mapa de risco por MCC |
+| `normalization.json` | Valores máximos usados para normalizar os campos numéricos |
 
 ---
 
-Pré-processamento
+## Pré-processamento
 
-Eu pré-processo o arquivo references.json.gz durante o build da imagem do vector-engine.
+Eu pré-processo o arquivo `references.json.gz` durante o build da imagem do `vector-engine`.
 
-O motivo é simples: não faz sentido pagar o custo de gzip + JSON no runtime se o dataset oficial não muda durante o teste.
+O motivo é simples: não faz sentido pagar o custo de gzip e JSON no runtime se o dataset oficial não muda durante o teste.
 
 O pré-processador gera:
 
+~~~txt
 /app/processed/references.f32
 /app/processed/labels.bin
+~~~
 
-references.f32
+### `references.f32`
 
 Contém todos os vetores em formato binário:
 
+~~~txt
 14 float32 por registro
 little-endian
+~~~
 
-labels.bin
+### `labels.bin`
 
 Contém o label de cada vetor:
 
+~~~txt
 0 = legit
 1 = fraud
+~~~
 
-Com isso, o vector-engine sobe mais simples: ele apenas carrega bytes já prontos para busca.
-
+Com isso, o `vector-engine` sobe de forma mais simples: ele apenas carrega bytes já prontos para busca.
 
 ---
 
-Vetorização
+## Vetorização
 
 A API transforma cada transação recebida em um vetor de 14 dimensões.
 
 A ordem seguida é:
 
+~~~txt
 0  amount
 1  installments
 2  amount_vs_avg
@@ -192,26 +194,30 @@ A ordem seguida é:
 11 unknown_merchant
 12 mcc_risk
 13 merchant_avg_amount
+~~~
 
-Algumas regras importantes:
-
-last_transaction = null
+### `last_transaction = null`
 
 Quando não existe última transação, uso o sentinela oficial:
 
+~~~txt
 minutes_since_last_tx = -1
 km_from_last_tx = -1
+~~~
 
-MCC desconhecido
+### MCC desconhecido
 
-Quando o MCC não existe em mcc_risk.json, uso:
+Quando o MCC não existe em `mcc_risk.json`, uso:
 
+~~~txt
 mcc_risk = 0.5
+~~~
 
-Dia da semana
+### Dia da semana
 
-O dia da semana é normalizado com segunda-feira como 0 e domingo como 6.
+O dia da semana é normalizado com segunda-feira como `0` e domingo como `6`.
 
+~~~txt
 segunda = 0
 terça   = 1
 quarta  = 2
@@ -219,27 +225,33 @@ quinta  = 3
 sexta   = 4
 sábado  = 5
 domingo = 6
+~~~
 
 Depois disso:
 
+~~~txt
 day_of_week = dia / 6
+~~~
 
-Hora do dia
+### Hora do dia
 
 A hora é normalizada assim:
 
+~~~txt
 hour_of_day = hora / 23
-
+~~~
 
 ---
 
-Busca vetorial
+## Busca vetorial
 
-O vector-engine recebe um vetor binário interno com 14 float32.
+O `vector-engine` recebe um vetor binário interno com 14 `float32`.
 
 Ele executa a busca dos vizinhos mais próximos usando distância euclidiana quadrática:
 
+~~~txt
 distance = soma((referencia[i] - consulta[i])²)
+~~~
 
 Não calculo raiz quadrada porque ela não muda a ordenação das distâncias. Para comparar quem está mais perto, a distância quadrática é suficiente.
 
@@ -247,38 +259,43 @@ Durante a busca, mantenho apenas os 5 melhores candidatos.
 
 O serviço retorna apenas um byte para a API:
 
+~~~txt
 quantidade de fraudes entre os 5 vizinhos
+~~~
 
-Exemplo:
+Valores possíveis:
 
+~~~txt
 0, 1, 2, 3, 4 ou 5
+~~~
 
-A API transforma isso em fraud_score.
-
+A API transforma esse valor em `fraud_score`.
 
 ---
 
-Endpoints
+## Endpoints
 
-GET /ready
+### `GET /ready`
 
 Verifica se a aplicação está pronta.
 
-A API chama internamente o /ready do vector-engine.
+A API chama internamente o `/ready` do `vector-engine`.
 
 Resposta esperada:
 
+~~~http
 204 No Content
-
+~~~
 
 ---
 
-POST /fraud-score
+### `POST /fraud-score`
 
 Recebe uma transação e retorna a decisão.
 
 Exemplo de request:
 
+~~~json
 {
   "id": "tx-1329056812",
   "transaction": {
@@ -303,64 +320,75 @@ Exemplo de request:
   },
   "last_transaction": null
 }
+~~~
 
 Exemplo de response:
 
+~~~json
 {
   "approved": true,
   "fraud_score": 0.2
 }
-
+~~~
 
 ---
 
-Como rodar localmente
+## Como rodar localmente
 
-1. Colocar os arquivos oficiais
+### 1. Colocar os arquivos oficiais
 
-Crie a pasta resources e coloque os arquivos do desafio:
+Crie a pasta `resources` e coloque os arquivos do desafio:
 
+~~~bash
 mkdir -p resources
+~~~
 
 Estrutura esperada:
 
+~~~txt
 resources/references.json.gz
 resources/mcc_risk.json
 resources/normalization.json
-
+~~~
 
 ---
 
-2. Buildar as imagens
+### 2. Buildar as imagens
 
+~~~bash
 docker build --target api -t nithack/rinha-2026-api:latest .
 docker build --target vector-engine -t nithack/rinha-2026-vector-engine:latest .
+~~~
 
-Durante o build da imagem vector-engine, o pré-processamento será executado automaticamente.
-
+Durante o build da imagem `vector-engine`, o pré-processamento será executado automaticamente.
 
 ---
 
-3. Subir os containers
+### 3. Subir os containers
 
+~~~bash
 docker compose up -d
-
+~~~
 
 ---
 
-4. Verificar se está pronto
+### 4. Verificar se está pronto
 
+~~~bash
 curl -i http://localhost:9999/ready
+~~~
 
 Resposta esperada:
 
+~~~http
 HTTP/1.1 204 No Content
-
+~~~
 
 ---
 
-5. Testar o score
+### 5. Testar o score
 
+~~~bash
 curl -s http://localhost:9999/fraud-score \
   -H 'Content-Type: application/json' \
   -d '{
@@ -387,14 +415,15 @@ curl -s http://localhost:9999/fraud-score \
     },
     "last_transaction": null
   }'
-
+~~~
 
 ---
 
-Recursos definidos no Docker Compose
+## Recursos definidos no Docker Compose
 
-A distribuição de recursos foi pensada para manter o maior peso no vector-engine, porque ele é quem carrega o dataset e executa a busca.
+A distribuição de recursos foi pensada para manter o maior peso no `vector-engine`, porque ele carrega o dataset e executa a busca.
 
+~~~yaml
 lb:
   cpus: "0.05"
   memory: "16MB"
@@ -410,148 +439,169 @@ api2:
 vector-engine:
   cpus: "0.75"
   memory: "270MB"
+~~~
 
 Total:
 
+~~~txt
 CPU: 1.00
 Memória: 350MB
-
+~~~
 
 ---
 
-Decisões de implementação
+## Decisões de implementação
 
-Por que separar API e vector-engine?
+### Por que separar API e vector-engine?
 
 Porque o desafio exige duas instâncias de API. Se cada API carregasse o dataset completo, eu duplicaria memória sem necessidade.
 
 A separação permite:
 
+~~~txt
 api1 leve
 api2 leve
 vector-engine centralizado com o dataset
+~~~
 
 Isso reduz duplicação de memória e deixa a responsabilidade mais clara.
 
-
 ---
 
-Por que usar pré-processamento?
+### Por que usar pré-processamento?
 
-Porque references.json.gz é pesado para carregar em runtime.
+Porque `references.json.gz` é pesado para carregar em runtime.
 
 No build, eu converto:
 
+~~~txt
 JSON gzip -> binário float32 + labels
+~~~
 
-No runtime, o vector-engine só lê arquivos binários simples.
-
-
----
-
-Por que usar float32?
-
-O dataset do desafio trabalha com valores normalizados. Para esse tipo de comparação vetorial, float32 reduz memória e é suficiente para ordenar as distâncias dos vizinhos.
-
-Além disso, usar float32 diminui o volume carregado em memória quando comparado com float64.
-
+No runtime, o `vector-engine` só lê arquivos binários simples.
 
 ---
 
-Por que não usar banco de dados?
+### Por que usar `float32`?
+
+O dataset do desafio trabalha com valores normalizados. Para esse tipo de comparação vetorial, `float32` reduz memória e é suficiente para ordenar as distâncias dos vizinhos.
+
+Além disso, usar `float32` diminui o volume carregado em memória quando comparado com `float64`.
+
+---
+
+### Por que não usar banco de dados?
 
 Porque o desafio não pede persistência transacional.
 
-O problema é puramente:
+O problema é:
 
+~~~txt
 entrada JSON -> vetor -> busca KNN -> resposta JSON
+~~~
 
-Adicionar banco de dados aqui aumentaria complexidade e consumo de recurso sem resolver uma necessidade do enunciado.
-
+Adicionar banco de dados aumentaria complexidade e consumo de recurso sem resolver uma necessidade do enunciado.
 
 ---
 
-Por que não adicionar heurísticas próprias?
+### Por que não adicionar heurísticas próprias?
 
 Porque o resultado precisa seguir a proposta do desafio.
 
-Eu não adiciono:
+Eu não adiciono regras como:
 
+~~~txt
 if MCC alto então fraude
 if valor alto então fraude
 if distância alta então recusar
+~~~
 
-A decisão final vem apenas dos 5 vizinhos mais próximos e do cálculo de fraud_score.
-
-
----
-
-Por que não usar cache de resposta?
-
-Porque o enunciado não exige e porque cada transação tem identificador e características próprias.
-
-Um cache poderia até ajudar em cenários repetidos, mas também adicionaria uma regra operacional fora do núcleo do desafio. Nesta versão, preferi manter a solução limitada e previsível.
-
+A decisão final vem apenas dos 5 vizinhos mais próximos e do cálculo de `fraud_score`.
 
 ---
 
-Limitações conhecidas
+### Por que não usar cache de resposta?
 
-Esta versão usa busca exata por força bruta no vector-engine.
+Porque cada transação tem identificador e características próprias.
+
+Um cache poderia ajudar em cenários repetidos, mas adicionaria uma camada que não faz parte do núcleo do desafio. Nesta versão, preferi manter a solução limitada e previsível.
+
+---
+
+## Limitações conhecidas
+
+Esta versão usa busca exata por força bruta no `vector-engine`.
 
 Isso tem uma vantagem:
 
+~~~txt
 resultado fiel ao KNN exato
+~~~
 
 Mas também tem um custo:
 
+~~~txt
 cada requisição compara contra todos os vetores de referência
+~~~
 
 Para o desafio real, o desempenho final precisa ser validado com o teste oficial. Eu não afirmo throughput ou latência sem executar a carga oficial no ambiente correto.
 
-
 ---
 
-Comandos úteis
+## Comandos úteis
 
 Subir:
 
+~~~bash
 docker compose up -d
+~~~
 
 Ver logs:
 
+~~~bash
 docker compose logs -f
+~~~
 
 Derrubar:
 
+~~~bash
 docker compose down
+~~~
 
 Rebuild completo:
 
+~~~bash
 docker compose down
+
 docker build --target api -t nithack/rinha-2026-api:latest .
 docker build --target vector-engine -t nithack/rinha-2026-vector-engine:latest .
+
 docker compose up -d
+~~~
 
-Testar /ready:
+Testar `/ready`:
 
+~~~bash
 curl -i http://localhost:9999/ready
+~~~
 
-Testar /fraud-score:
+Testar `/fraud-score`:
 
+~~~bash
 curl -s http://localhost:9999/fraud-score \
   -H 'Content-Type: application/json' \
   -d @payload.json
-
+~~~
 
 ---
 
-Publicação das imagens
+## Publicação das imagens
 
-Antes de submeter, eu preciso trocar o nome das imagens no docker-compose.yml para o registry correto.
+Antes de submeter, eu preciso trocar o nome das imagens no `docker-compose.yml` para o registry correto.
 
 Exemplo:
 
+~~~yaml
 api1:
   image: meu-registry/rinha-2026-api:latest
 
@@ -560,22 +610,25 @@ api2:
 
 vector-engine:
   image: meu-registry/rinha-2026-vector-engine:latest
+~~~
 
 Build e push:
 
+~~~bash
 docker build --target api -t meu-registry/rinha-2026-api:latest .
 docker build --target vector-engine -t meu-registry/rinha-2026-vector-engine:latest .
 
 docker push meu-registry/rinha-2026-api:latest
 docker push meu-registry/rinha-2026-vector-engine:latest
-
+~~~
 
 ---
 
-Resumo da solução
+## Resumo da solução
 
 Eu mantive a solução focada no que o desafio pede:
 
+~~~txt
 2 instâncias de API
 1 load balancer na porta 9999
 1 serviço interno de busca vetorial
@@ -584,9 +637,12 @@ vetorização com 14 dimensões
 busca dos 5 vizinhos mais próximos
 fraud_score = fraudes / 5
 approved = fraud_score < 0.6
+~~~
 
 A implementação evita dependências desnecessárias e mantém o caminho crítico pequeno:
 
+~~~txt
 Nginx -> API -> Vector Engine -> API -> resposta
+~~~
 
 A ideia é competir com uma solução simples de entender, fácil de revisar e diretamente conectada ao enunciado.
